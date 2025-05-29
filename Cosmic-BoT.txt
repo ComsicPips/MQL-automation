@@ -1,0 +1,96 @@
+# CosmiPips AI - Python Pseudocode for Trading Logic
+# Adapted from MQL4 to Python (for strategy simulation or future API integration)
+
+class CosmiPipsAI:
+    def __init__(self, account_balance, license_key):
+        self.account_balance = account_balance
+        self.license_key = license_key
+        self.is_authorized = self.verify_license()
+        self.orders = []
+
+        # Constants
+        self.TAKE_PROFIT = 50
+        self.STOP_LOSS = 15
+        self.TRAILING_STOP = 8
+        self.MAX_RISK_PER_TRADE = 0.35
+        self.MAX_DAILY_RISK = 0.25
+        self.lot_size = 0.14
+
+    def verify_license(self):
+        return self.license_key == "VALID-KEY-123"
+
+    def is_trading_session(self, hour):
+        return 8 <= hour < 23
+
+    def is_pin_bar(self, candle):
+        body = abs(candle['close'] - candle['open'])
+        upper_wick = candle['high'] - max(candle['open'], candle['close'])
+        lower_wick = min(candle['open'], candle['close']) - candle['low']
+        return upper_wick > 2 * body or lower_wick > 2 * body
+
+    def is_engulfing(self, c1, c2):
+        return (c1['close'] > c1['open'] and
+                c2['close'] < c2['open'] and
+                c2['close'] < c1['open'] and
+                c2['open'] > c1['close'])
+
+    def is_near_support_resistance(self, current_price, history):
+        return any(abs(h - current_price) < 10 for h in history)
+
+    def is_breakout(self, c1, c2):
+        return c1['close'] > c2['high'] or c1['close'] < c2['low']
+
+    def calculate_lot_size(self):
+        risk_amount = self.account_balance * self.MAX_RISK_PER_TRADE
+        return min(risk_amount / (self.STOP_LOSS), self.account_balance / 1000)
+
+    def execute_trade(self, current_hour, price_data, symbol):
+        if not self.is_authorized or not self.is_trading_session(current_hour):
+            return
+
+        c1 = price_data[-2]  # second-last candle
+        c2 = price_data[-1]  # last candle
+        current_price = c2['close']
+
+        lot = self.calculate_lot_size()
+        
+        if self.is_pin_bar(c1) or self.is_engulfing(c1, c2):
+            self.orders.append({'symbol': symbol, 'type': 'SELL', 'lot': lot, 'entry': current_price})
+
+        elif self.is_breakout(c2, c1):
+            self.orders.append({'symbol': symbol, 'type': 'BUY', 'lot': lot, 'entry': current_price})
+
+    def apply_trailing_stop(self, current_price):
+        updated_orders = []
+        for order in self.orders:
+            if order['type'] == 'BUY':
+                if current_price - order['entry'] >= self.TRAILING_STOP:
+                    order['stop_loss'] = current_price - self.TRAILING_STOP
+            elif order['type'] == 'SELL':
+                if order['entry'] - current_price >= self.TRAILING_STOP:
+                    order['stop_loss'] = current_price + self.TRAILING_STOP
+            updated_orders.append(order)
+        self.orders = updated_orders
+
+    def dashboard(self):
+        return {
+            "License Valid": self.is_authorized,
+            "Account Balance": self.account_balance,
+            "Open Trades": len(self.orders)
+        }
+
+
+# Example usage
+if __name__ == '__main__':
+    bot = CosmiPipsAI(account_balance=1000.0, license_key="VALID-KEY-123")
+    
+    mock_candles = [
+        {'open': 100, 'high': 110, 'low': 95, 'close': 98},
+        {'open': 98, 'high': 102, 'low': 97, 'close': 101},
+    ]
+
+    bot.execute_trade(current_hour=10, price_data=mock_candles, symbol="XAUUSD")
+    bot.apply_trailing_stop(current_price=103)
+
+    print(bot.dashboard())
+    print(bot.orders)
